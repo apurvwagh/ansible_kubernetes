@@ -1,0 +1,99 @@
+- hosts: all
+
+  become: yes
+  become_user: root
+  tasks:
+  - name: "Repository"
+    yum_repository:
+       name: "Docker"
+       description: "Docker Repo"
+       baseurl: "https://download.docker.com/linux/centos/7/x86_64/stable"
+       gpgcheck: "no"
+  -  name: "creating docker package"
+     package:
+        name: "docker-ce-18.09.1-3.el7.x86_64"
+        state: present
+
+
+#  - name: Stop the firewalld permanently
+#    command: "systemctl stop firewalld"
+
+
+  - name: Ensure SELinux is set to enforcing mode
+    lineinfile:
+           path: /etc/selinux/config
+           regexp: '^SELINUX='
+           line: SELINUX=permissive
+  - name: Make the mount permanent
+    lineinfile:
+           dest: /etc/rc.d/rc.local
+           line: mount  /dev/cdrom /dvd
+           state: present
+           create: yes
+
+
+
+  - name: Make firewall file executable
+    command: chmod +x /etc/rc.d/rc.local
+  - name: Configure kubernetes repo
+    shell: |
+           cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
+           [kubernetes]
+           name=Kubernetes
+           baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-\$basearch
+           enabled=1
+           gpgcheck=1
+           repo_gpgcheck=1
+           gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+           exclude=kubelet kubeadm kubectl
+           EOF
+
+    args:
+        executable: /bin/bash
+  - name: Install kubelet, kubeadm and kubectl
+    command: yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+
+
+
+  - name: For change the driver of docker(cgroup ---> systemd)
+    copy:
+        src: 'daemon.json'
+        dest: '/etc/docker/'
+  - name: Relaod the Docker service(daemon)
+    service:
+          name: "docker"
+          state: restarted
+
+  - name: For Off all types of swap
+    command: swapoff -a
+#  - name: For comment the swap in /etc/fstab file.
+#    replace:
+#           path: /etc/fstab
+#            regexp: '/dev/mapper/rhel-swap   swap                    swap    defaults        0 0'
+#            replace: '#/dev/mapper/rhel-swap   swap                    swap    defaults        0 0'
+#  - name: long shell script
+#    shell: |
+#            cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+#            net.bridge.bridge-nf-call-ip6tables = 1
+#            net.bridge.bridge-nf-call-iptables = 1
+#            EOF
+    args:
+          executable: /bin/bash
+  - name: Install iproute-tc
+    package:
+           name: "iproute-tc"
+           state: present
+
+
+  - name: Start kubelet
+    service:
+            name: "kubelet"
+            state: started
+            enabled: yes
+  - name: copy the content at all the nodes in /etc/hosts file
+    blockinfile:
+            path: /etc/hosts
+            block: |
+                    172.31.38.90   master
+                    172.31.41.226  node1
+                    172.31.36.172  node2
